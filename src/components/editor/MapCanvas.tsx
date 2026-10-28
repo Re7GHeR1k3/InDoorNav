@@ -24,19 +24,17 @@ import {
     QrCode,
     Trash2,
     Move,
-    Grid,
-    Download,
+    LogOut,
 } from 'lucide-react';
 
 import type { AppNode, AppEdge, GpsAnchor } from '../../types/navigation';
 import { CustomArUcoNode } from './CustomArUcoNode';
 import { CustomCorridorEdge } from './CustomCorridorEdge';
 import { FloorplanNode } from './FloorplanNode';
-import { RedGridNode } from './RedGridNode';
 import { ScaleCalibration } from './ScaleCalibration';
 import { NodeSidebar } from './NodeSidebar';
 import { GpsPickerModal } from '../gps/GpsPickerModal';
-import { saveIndoorMapToSupabase } from '../../api/supabaseClient';
+import { saveIndoorMapToSupabase, supabase } from '../../api/supabaseClient';
 import {
     calculateDistanceMeters,
     calculateAzimuthDeg,
@@ -45,14 +43,12 @@ import {
 import { serializeGraphToJSON } from '../../utils/graphSerializer';
 
 const FLOORPLAN_NODE_ID = 'floorplan_bg_node';
-const RED_GRID_NODE_ID = 'red_grid_overlay_node';
 
-type EditorTool = 'select' | 'add_aruco' | 'move_floorplan' | 'move_grid' | 'delete';
+type EditorTool = 'select' | 'add_aruco' | 'move_floorplan' | 'delete';
 
 const MapEditorInner: React.FC = () => {
     const { screenToFlowPosition } = useReactFlow();
 
-    // Режим работы панели инструментов
     const [activeTool, setActiveTool] = useState<EditorTool>('add_aruco');
 
     const [buildingName, setBuildingName] = useState<string>('');
@@ -63,9 +59,6 @@ const MapEditorInner: React.FC = () => {
 
     const [pxPerMeter, setPxPerMeter] = useState<number>(40);
     const [northOffsetDeg, setNorthOffsetDeg] = useState<number>(0);
-    const [showRedGrid, setShowRedGrid] = useState<boolean>(true);
-    const [gridWidthMeters, setGridWidthMeters] = useState<number>(25);
-    const [gridHeightMeters, setGridHeightMeters] = useState<number>(18);
 
     const [nextArucoId, setNextArucoId] = useState<number>(1);
 
@@ -88,7 +81,6 @@ const MapEditorInner: React.FC = () => {
         () => ({
             aruco: CustomArUcoNode,
             floorplan: FloorplanNode,
-            redGrid: RedGridNode,
         }),
         []
     );
@@ -100,7 +92,7 @@ const MapEditorInner: React.FC = () => {
         []
     );
 
-    // Синхронизация подложки плана этажа (перетаскивается только в режиме move_floorplan)
+    // Синхронизация подложки плана этажа
     useEffect(() => {
         if (!floorplanUrl) return;
         const isInteractive = activeTool === 'move_floorplan';
@@ -110,7 +102,7 @@ const MapEditorInner: React.FC = () => {
             const bgNode: AppNode = {
                 id: FLOORPLAN_NODE_ID,
                 type: 'floorplan',
-                position: existing ? existing.position : { x: 50, y: 50 },
+                position: existing ? existing.position : { x: 400, y: 300 },
                 draggable: isInteractive,
                 selectable: isInteractive,
                 connectable: false,
@@ -128,37 +120,6 @@ const MapEditorInner: React.FC = () => {
         });
     }, [floorplanUrl, floorplanScale, activeTool, setNodes]);
 
-    // Синхронизация отдельной Красной сетки (перетаскивается независимо от рисунка)
-    useEffect(() => {
-        const isInteractive = activeTool === 'move_grid';
-
-        setNodes((nds) => {
-            if (!showRedGrid) {
-                return nds.filter((n) => n.id !== RED_GRID_NODE_ID);
-            }
-            const existing = nds.find((n) => n.id === RED_GRID_NODE_ID);
-            const gridNode: AppNode = {
-                id: RED_GRID_NODE_ID,
-                type: 'redGrid',
-                position: existing ? existing.position : { x: 50, y: 50 },
-                draggable: isInteractive,
-                selectable: isInteractive,
-                connectable: false,
-                zIndex: -10,
-                className: isInteractive ? '' : 'layer-locked',
-                data: {
-                    pxPerMeter,
-                    widthMeters: gridWidthMeters,
-                    heightMeters: gridHeightMeters,
-                    isInteractive,
-                },
-            };
-            return existing
-                ? nds.map((n) => (n.id === RED_GRID_NODE_ID ? gridNode : n))
-                : [...nds, gridNode];
-        });
-    }, [showRedGrid, pxPerMeter, gridWidthMeters, gridHeightMeters, activeTool, setNodes]);
-
     // Синхронизация глобального размера маркеров ArUco
     useEffect(() => {
         setNodes((nds) =>
@@ -170,7 +131,7 @@ const MapEditorInner: React.FC = () => {
         );
     }, [markerSize, setNodes]);
 
-    // Автопересчет длины и азимута ребер
+    // Автопересчет длины и азимута ребер (от центра до центра)
     useEffect(() => {
         setEdges((eds) =>
             eds.map((edge) => {
@@ -200,7 +161,7 @@ const MapEditorInner: React.FC = () => {
         setFloorplanUrl(URL.createObjectURL(file));
     };
 
-    // Клик по белому холсту: ставим маркер ровно по центру курсора
+    // Клик по холсту: благодаря nodeOrigin={[0.5, 0.5]} координаты position.x/y — это точный ЦЕНТР маркера
     const handlePaneClick = useCallback(
         (event: React.MouseEvent) => {
             if (activeTool === 'add_aruco') {
@@ -210,12 +171,10 @@ const MapEditorInner: React.FC = () => {
                 });
 
                 const newId = `node_${Date.now()}`;
-                const half = markerSize / 2;
-
                 const newNode: AppNode = {
                     id: newId,
                     type: 'aruco',
-                    position: { x: position.x - half, y: position.y - half },
+                    position: { x: position.x, y: position.y },
                     data: {
                         aruco_id: nextArucoId,
                         label: `Marker ${nextArucoId}`,
@@ -301,7 +260,7 @@ const MapEditorInner: React.FC = () => {
         return found && found.type === 'aruco' ? found : null;
     }, [nodes, selectedNodeId]);
 
-    const generateCurrentJson = () => {
+    const handleSaveMap = async () => {
         const json = serializeGraphToJSON({
             buildingName: buildingName || 'Unnamed Building',
             floorLevel,
@@ -312,26 +271,6 @@ const MapEditorInner: React.FC = () => {
             edges,
         });
         setExportedJson(json);
-        return json;
-    };
-
-    // Прямое скачивание .json файла на диск
-    const handleDownloadJsonFile = () => {
-        const json = generateCurrentJson();
-        const blob = new Blob([JSON.stringify(json, null, 2)], {
-            type: 'application/json',
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${buildingName || 'indoor_map'}_floor_${floorLevel}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-
-    // Сохранение карты в базу данных Supabase
-    const handleSaveMap = async () => {
-        const json = generateCurrentJson();
 
         try {
             setIsSaving(true);
@@ -343,12 +282,16 @@ const MapEditorInner: React.FC = () => {
                 gpsAnchor.geofence_radius_meters,
                 json
             );
-            alert('Map succesfully added to database!');
-        } catch {
-            alert('The JSON has been generated at the bottom right!');
+            alert('Map successfully saved to Supabase database!');
+        } catch (err: any) {
+            alert(`Error saving to database: ${err?.message || 'Access denied'}`);
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
     };
 
     return (
@@ -375,7 +318,6 @@ const MapEditorInner: React.FC = () => {
                     flexShrink: 0,
                 }}
             >
-                {/* Левая группа: Инструменты редактирования */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="font-bold text-xs text-slate-700 mr-2">
             InDoorNav Admin Panel
@@ -416,25 +358,9 @@ const MapEditorInner: React.FC = () => {
                                 ? 'bg-emerald-600 text-white border-emerald-700 shadow-inner'
                                 : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 disabled:opacity-40'
                         }`}
-                        title="Move the floor plan drawing using the mouse"
                     >
                         <Move className="w-3.5 h-3.5" />
                         <span>Move Photo</span>
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={() => setActiveTool('move_grid')}
-                        disabled={!showRedGrid}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium border transition ${
-                            activeTool === 'move_grid'
-                                ? 'bg-red-600 text-white border-red-700 shadow-inner'
-                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100 disabled:opacity-40'
-                        }`}
-                        title="Move the red grid independently of the drawing"
-                    >
-                        <Grid className="w-3.5 h-3.5" />
-                        <span>Move Grid</span>
                     </button>
 
                     <button
@@ -452,7 +378,6 @@ const MapEditorInner: React.FC = () => {
 
                     <div className="h-5 w-[1px] bg-slate-300 mx-1" />
 
-                    {/* Название здания и этаж */}
                     <input
                         type="text"
                         value={buildingName}
@@ -471,7 +396,7 @@ const MapEditorInner: React.FC = () => {
                     </label>
                 </div>
 
-                {/* Правая группа: План этажа, GPS, Скачивание .JSON и Сохранение */}
+                {/* Правая группа */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <label className="cursor-pointer flex items-center gap-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-medium px-2.5 py-1.5 rounded transition">
                         <Upload className="w-3.5 h-3.5" />
@@ -497,16 +422,6 @@ const MapEditorInner: React.FC = () => {
 
                     <button
                         type="button"
-                        onClick={handleDownloadJsonFile}
-                        className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-medium px-2.5 py-1.5 rounded transition shadow-sm"
-                        title="Download .json file"
-                    >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>.JSON</span>
-                    </button>
-
-                    <button
-                        type="button"
                         disabled={isSaving}
                         onClick={handleSaveMap}
                         className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-medium px-3 py-1.5 rounded shadow-sm transition"
@@ -514,12 +429,20 @@ const MapEditorInner: React.FC = () => {
                         <Save className="w-3.5 h-3.5" />
                         <span>{isSaving ? 'Saving...' : 'Save JSON'}</span>
                     </button>
+
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="flex items-center gap-1 bg-white hover:bg-red-50 text-slate-600 hover:text-red-600 border border-slate-300 text-xs font-medium px-2.5 py-1.5 rounded transition"
+                        title="Sign Out"
+                    >
+                        <LogOut className="w-3.5 h-3.5" />
+                    </button>
                 </div>
             </header>
 
             {/* Основная рабочая область */}
             <div style={{ display: 'flex', flex: 1, minHeight: 0, width: '100%' }}>
-                {/* Белый холст React Flow */}
                 <div
                     style={{
                         flex: 1,
@@ -531,6 +454,7 @@ const MapEditorInner: React.FC = () => {
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
+                        nodeOrigin={[0.5, 0.5]}
                         onNodesChange={onNodesChange}
                         onEdgesChange={onEdgesChange}
                         onConnect={onConnect}
@@ -574,7 +498,6 @@ const MapEditorInner: React.FC = () => {
                     </ReactFlow>
                 </div>
 
-                {/* Правая панель инспектора и калибровки */}
                 <aside
                     style={{
                         width: 320,
@@ -592,19 +515,11 @@ const MapEditorInner: React.FC = () => {
                         onChangePxPerMeter={setPxPerMeter}
                         northOffsetDeg={northOffsetDeg}
                         onChangeNorthOffset={setNorthOffsetDeg}
-                        showRedGrid={showRedGrid}
-                        onToggleRedGrid={() => setShowRedGrid((v) => !v)}
                         selectedEdgePixelLength={selectedEdgePixelLength}
                         markerSize={markerSize}
                         onChangeMarkerSize={setMarkerSize}
                         floorplanScale={floorplanScale}
                         onChangeFloorplanScale={setFloorplanScale}
-                        gridWidthMeters={gridWidthMeters}
-                        gridHeightMeters={gridHeightMeters}
-                        onChangeGridDimensions={(w, h) => {
-                            setGridWidthMeters(w);
-                            setGridHeightMeters(h);
-                        }}
                     />
 
                     <NodeSidebar

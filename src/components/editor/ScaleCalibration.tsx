@@ -1,36 +1,28 @@
 import React, { useState } from 'react';
-import { Ruler, Grid, Maximize2, Image as ImageIcon } from 'lucide-react';
+import { Ruler, Compass, Maximize2, Image as ImageIcon } from 'lucide-react';
 
 interface ScaleCalibrationProps {
     pxPerMeter: number;
     onChangePxPerMeter: (val: number) => void;
     northOffsetDeg: number;
     onChangeNorthOffset: (val: number) => void;
-    showRedGrid: boolean;
-    onToggleRedGrid: () => void;
     selectedEdgePixelLength: number | null;
     markerSize: number;
     onChangeMarkerSize: (val: number) => void;
     floorplanScale: number;
     onChangeFloorplanScale: (val: number) => void;
-    gridWidthMeters: number;
-    gridHeightMeters: number;
-    onChangeGridDimensions: (w: number, h: number) => void;
 }
 
 export const ScaleCalibration: React.FC<ScaleCalibrationProps> = ({
                                                                       pxPerMeter,
                                                                       onChangePxPerMeter,
-                                                                      showRedGrid,
-                                                                      onToggleRedGrid,
+                                                                      northOffsetDeg,
+                                                                      onChangeNorthOffset,
                                                                       selectedEdgePixelLength,
                                                                       markerSize,
                                                                       onChangeMarkerSize,
                                                                       floorplanScale,
                                                                       onChangeFloorplanScale,
-                                                                      gridWidthMeters,
-                                                                      gridHeightMeters,
-                                                                      onChangeGridDimensions,
                                                                   }) => {
     const [realMetersInput, setRealMetersInput] = useState<string>('10');
 
@@ -40,25 +32,12 @@ export const ScaleCalibration: React.FC<ScaleCalibrationProps> = ({
         const calculatedScale = selectedEdgePixelLength / meters;
         onChangePxPerMeter(Number(calculatedScale.toFixed(2)));
     };
+
     return (
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 font-semibold text-slate-800 text-sm">
-                    <Ruler className="w-4 h-4 text-red-600" />
-                    <span>Scale calibration</span>
-                </div>
-                <button
-                    type="button"
-                    onClick={onToggleRedGrid}
-                    className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border transition ${
-                        showRedGrid
-                            ? 'bg-red-50 text-red-700 border-red-300'
-                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                >
-                    <Grid className="w-3.5 h-3.5" />
-                    {showRedGrid ? 'Net: ON' : 'Net: OFF'}
-                </button>
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm space-y-3.5">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-xs">
+                <Ruler className="w-4 h-4 text-blue-600" />
+                <span>Scale & Dimensions</span>
             </div>
 
             {/* Размер маркеров ArUco */}
@@ -66,7 +45,7 @@ export const ScaleCalibration: React.FC<ScaleCalibrationProps> = ({
                 <div className="flex justify-between text-xs">
           <span className="flex items-center gap-1 text-slate-600 font-medium">
             <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
-            ArUco size:
+            ArUco Marker Size:
           </span>
                     <span className="font-mono font-bold text-slate-800">{markerSize} px</span>
                 </div>
@@ -86,7 +65,7 @@ export const ScaleCalibration: React.FC<ScaleCalibrationProps> = ({
                 <div className="flex justify-between text-xs">
           <span className="flex items-center gap-1 text-slate-600 font-medium">
             <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-              Photo size:
+            Floorplan Scale:
           </span>
                     <span className="font-mono font-bold text-slate-800">
             {Math.round(floorplanScale * 100)}%
@@ -103,84 +82,47 @@ export const ScaleCalibration: React.FC<ScaleCalibrationProps> = ({
                 />
             </div>
 
-            {/* Размеры красной сетки в метрах */}
-            {showRedGrid && (
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
-                    <div>
-                        <label className="block text-[11px] text-slate-500 mb-0.5">
-                            Net width (m)
-                        </label>
-                        <input
-                            type="number"
-                            min="5"
-                            max="200"
-                            value={gridWidthMeters}
-                            onChange={(e) =>
-                                onChangeGridDimensions(Math.max(5, Number(e.target.value)), gridHeightMeters)
-                            }
-                            className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-[11px] text-slate-500 mb-0.5">
-                            Height (m)
-                        </label>
-                        <input
-                            type="number"
-                            min="5"
-                            max="200"
-                            value={gridHeightMeters}
-                            onChange={(e) =>
-                                onChangeGridDimensions(gridWidthMeters, Math.max(5, Number(e.target.value)))
-                            }
-                            className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1"
-                        />
-                    </div>
-                </div>
-            )}
-
-            {/* Калибровка по выбранному отрезку  */}
-            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 space-y-2">
-                <p className="text-xs text-slate-600">
+            {/* Калибровка по выбранному ребру */}
+            <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 space-y-2">
+                <p className="text-[11px] text-slate-600 leading-tight">
                     {selectedEdgePixelLength ? (
                         <>
-                            the length of selected segment {' '}
+                            Selected corridor:{' '}
                             <strong className="text-slate-900">
                                 {Math.round(selectedEdgePixelLength)} px
                             </strong>
-                            . give the real length:
+                            . Real length (m):
                         </>
                     ) : (
-                        'Connect two markers along a known wall and click on the line for precise calibration:'
+                        'Click a corridor line between markers to calibrate scale by real distance:'
                     )}
                 </p>
 
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                     <input
                         type="number"
                         min="0.1"
                         step="0.5"
                         value={realMetersInput}
                         onChange={(e) => setRealMetersInput(e.target.value)}
-                        placeholder="Meters (Ex. 10)"
-                        className="w-full text-sm border border-slate-300 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full text-xs border border-slate-300 rounded px-2 py-1"
                     />
                     <button
                         type="button"
                         disabled={!selectedEdgePixelLength}
                         onClick={handleCalibrateByEdge}
-                        className="shrink-0 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white text-xs font-medium px-3 py-1.5 rounded-md transition"
+                        className="shrink-0 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-medium px-2.5 py-1 rounded transition"
                     >
-                        Apply (m)
+                        OK
                     </button>
                 </div>
             </div>
 
-            {/* Ручная подстройка коэффициента и Севера */}
-            <div className="grid grid-cols-1 gap-3 pt-1">
+            {/* Пиксели в метре и Север */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
                 <div>
-                    <label className="block text-xs text-slate-500 mb-1">
-                        Pixels in 1 meter
+                    <label className="block text-[11px] text-slate-500 mb-0.5">
+                        Pixels per 1m
                     </label>
                     <input
                         type="number"
@@ -188,24 +130,24 @@ export const ScaleCalibration: React.FC<ScaleCalibrationProps> = ({
                         step="0.5"
                         value={pxPerMeter}
                         onChange={(e) => onChangePxPerMeter(Math.max(1, Number(e.target.value)))}
-                        className="w-full text-sm font-mono border border-slate-300 rounded-md px-3 py-1"
+                        className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1"
                     />
                 </div>
 
-                {/*<div>*/}
-                {/*    <label className="flex items-center gap-1 text-xs text-slate-500 mb-1">*/}
-                {/*        <Compass className="w-3.5 h-3.5 text-blue-600" />*/}
-                {/*        North correction (0-360°)*/}
-                {/*    </label>*/}
-                {/*    <input*/}
-                {/*        type="number"*/}
-                {/*        min="0"*/}
-                {/*        max="359"*/}
-                {/*        value={northOffsetDeg}*/}
-                {/*        onChange={(e) => onChangeNorthOffset(Number(e.target.value))}*/}
-                {/*        className="w-full text-sm font-mono border border-slate-300 rounded-md px-2.5 py-1"*/}
-                {/*    />*/}
-                {/*</div>*/}
+                <div>
+                    <label className="flex items-center gap-1 text-[11px] text-slate-500 mb-0.5">
+                        <Compass className="w-3 h-3 text-blue-600" />
+                        North (0-360°)
+                    </label>
+                    <input
+                        type="number"
+                        min="0"
+                        max="359"
+                        value={northOffsetDeg}
+                        onChange={(e) => onChangeNorthOffset(Number(e.target.value))}
+                        className="w-full text-xs font-mono border border-slate-300 rounded px-2 py-1"
+                    />
+                </div>
             </div>
         </div>
     );
