@@ -1,24 +1,13 @@
 import type { Node, Edge } from '@xyflow/react';
 
-// Данные внутри узла-маркера ArUco
 export interface ArUcoNodeData extends Record<string, unknown> {
     aruco_id: number;
     label: string;
-    markerSize?: number; // Размер маркера в пикселях
+    onResizeMarker?: (newSize: number) => void;
 }
 
-// Данные внутри узла плана этажа (теперь с масштабом и отдельно от сетки)
 export interface FloorplanNodeData extends Record<string, unknown> {
     imageUrl: string;
-    scale: number; // Масштаб картинки (1 = 100%)
-    isInteractive?: boolean;
-}
-
-// Данные внутри отдельного независимого узла «Красной сетки»
-export interface RedGridNodeData extends Record<string, unknown> {
-    pxPerMeter: number;
-    widthMeters: number;
-    heightMeters: number;
     isInteractive?: boolean;
 }
 
@@ -29,8 +18,7 @@ export interface CorridorEdgeData extends Record<string, unknown> {
 
 export type AppNode =
     | Node<ArUcoNodeData, 'aruco'>
-    | Node<FloorplanNodeData, 'floorplan'>
-    | Node<RedGridNodeData, 'redGrid'>;
+    | Node<FloorplanNodeData, 'floorplan'>;
 
 export type AppEdge = Edge<CorridorEdgeData>;
 
