@@ -1,4 +1,12 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import {
+    useState,
+    useCallback,
+    useMemo,
+    useEffect,
+    type FC,
+    type ChangeEvent,
+    type MouseEvent,
+} from 'react';
 import {
     ReactFlow,
     Background,
@@ -27,18 +35,21 @@ import {
     LogOut,
 } from 'lucide-react';
 
-import type { AppNode, AppEdge, GpsAnchor } from '../../types/navigation';
+import type {
+    AppNode,
+    AppEdge,
+    GpsAnchor,
+    IndoorMapJSON,
+} from '../../types/navigation';
 import { CustomArUcoNode } from './CustomArUcoNode';
 import { CustomCorridorEdge } from './CustomCorridorEdge';
 import { FloorplanNode } from './FloorplanNode';
-import { ScaleCalibration } from './ScaleCalibration';
 import { NodeSidebar } from './NodeSidebar';
 import { GpsPickerModal } from '../gps/GpsPickerModal';
 import { saveIndoorMapToSupabase, supabase } from '../../api/supabaseClient';
 import {
     calculateDistanceMeters,
     calculateAzimuthDeg,
-    getPixelDistance,
 } from '../../utils/geometry';
 import { serializeGraphToJSON } from '../../utils/graphSerializer';
 
@@ -46,7 +57,7 @@ const FLOORPLAN_NODE_ID = 'floorplan_bg_node';
 
 type EditorTool = 'select' | 'add_aruco' | 'move_floorplan' | 'delete';
 
-const MapEditorInner: React.FC = () => {
+const MapEditorInner: FC = () => {
     const { screenToFlowPosition } = useReactFlow();
 
     const [activeTool, setActiveTool] = useState<EditorTool>('add_aruco');
@@ -54,11 +65,14 @@ const MapEditorInner: React.FC = () => {
     const [buildingName, setBuildingName] = useState<string>('');
     const [floorLevel, setFloorLevel] = useState<number>(0);
     const [floorplanUrl, setFloorplanUrl] = useState<string>('');
-    const [floorplanScale, setFloorplanScale] = useState<number>(1);
-    const [markerSize, setMarkerSize] = useState<number>(46);
+    const [floorplanDimensions, setFloorplanDimensions] = useState<{
+        width: number;
+        height: number;
+    }>({ width: 650, height: 450 });
+    const [markerSize, setMarkerSize] = useState<number>(52);
 
-    const [pxPerMeter, setPxPerMeter] = useState<number>(40);
-    const [northOffsetDeg, setNorthOffsetDeg] = useState<number>(0);
+    const [pxPerMeter] = useState<number>(40);
+    const [northOffsetDeg] = useState<number>(0);
 
     const [nextArucoId, setNextArucoId] = useState<number>(1);
 
@@ -71,8 +85,7 @@ const MapEditorInner: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
 
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-    const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-    const [exportedJson, setExportedJson] = useState<any>(null);
+    const [exportedJson, setExportedJson] = useState<IndoorMapJSON | null>(null);
 
     const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<AppEdge>([]);
@@ -92,46 +105,80 @@ const MapEditorInner: React.FC = () => {
         []
     );
 
-    // Синхронизация подложки плана этажа
+    // Синхронизация подложки плана этажа строго по пропорциям загруженной картинки
     useEffect(() => {
         if (!floorplanUrl) return;
         const isInteractive = activeTool === 'move_floorplan';
 
         setNodes((nds) => {
             const existing = nds.find((n) => n.id === FLOORPLAN_NODE_ID);
+            if (existing) {
+                return nds.map((n): AppNode =>
+                    n.id === FLOORPLAN_NODE_ID && n.type === 'floorplan'
+                        ? {
+                            ...n,
+                            draggable: isInteractive,
+                            selectable: isInteractive,
+                            selected: isInteractive,
+                            className: isInteractive ? '' : 'layer-locked',
+                            data: {
+                                ...n.data,
+                                imageUrl: floorplanUrl,
+                                isInteractive,
+                            },
+                        }
+                        : n
+                );
+            }
+
             const bgNode: AppNode = {
                 id: FLOORPLAN_NODE_ID,
                 type: 'floorplan',
-                position: existing ? existing.position : { x: 400, y: 300 },
+                position: { x: 450, y: 320 },
+                style: {
+                    width: floorplanDimensions.width,
+                    height: floorplanDimensions.height,
+                },
                 draggable: isInteractive,
                 selectable: isInteractive,
+                selected: isInteractive,
                 connectable: false,
                 zIndex: -20,
                 className: isInteractive ? '' : 'layer-locked',
                 data: {
                     imageUrl: floorplanUrl,
-                    scale: floorplanScale,
                     isInteractive,
                 },
             };
-            return existing
-                ? nds.map((n) => (n.id === FLOORPLAN_NODE_ID ? bgNode : n))
-                : [bgNode, ...nds];
+            return [bgNode, ...nds];
         });
-    }, [floorplanUrl, floorplanScale, activeTool, setNodes]);
+    }, [floorplanUrl, floorplanDimensions, activeTool, setNodes]);
 
-    // Синхронизация глобального размера маркеров ArUco
+    // Синхронизация размера всех маркеров ArUco через style.width / style.height
     useEffect(() => {
         setNodes((nds) =>
-            nds.map((node) =>
+            nds.map((node): AppNode =>
                 node.type === 'aruco'
-                    ? { ...node, data: { ...node.data, markerSize } }
+                    ? {
+                        ...node,
+                        width: markerSize,
+                        height: markerSize,
+                        style: {
+                            ...node.style,
+                            width: markerSize,
+                            height: markerSize,
+                        },
+                        data: {
+                            ...node.data,
+                            onResizeMarker: (newSize: number) => setMarkerSize(newSize),
+                        },
+                    }
                     : node
             )
         );
     }, [markerSize, setNodes]);
 
-    // Автопересчет длины и азимута ребер (от центра до центра)
+    // Автопересчет длины и азимута ребер
     useEffect(() => {
         setEdges((eds) =>
             eds.map((edge) => {
@@ -155,15 +202,43 @@ const MapEditorInner: React.FC = () => {
         );
     }, [nodes, pxPerMeter, northOffsetDeg, setEdges]);
 
-    const handleFloorplanUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Загрузка плана с автоматическим определением точных границ фото
+    const handleFloorplanUpload = (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        setFloorplanUrl(URL.createObjectURL(file));
+
+        const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('Security Error: Only PNG, JPEG or WEBP images are allowed!');
+            return;
+        }
+
+        if (file.size > 10 * 1024 * 1024) {
+            alert('File is too large! Maximum allowed size is 10 MB.');
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            const baseWidth = 700;
+            const aspect = img.naturalHeight / (img.naturalWidth || 1);
+            const calculatedHeight = Math.round(baseWidth * aspect);
+
+            setFloorplanDimensions({
+                width: baseWidth,
+                height: calculatedHeight,
+            });
+
+            // Удаляем старый узел плана, если загружают новую картинку, чтобы обновить пропорции рамки
+            setNodes((nds) => nds.filter((n) => n.id !== FLOORPLAN_NODE_ID));
+            setFloorplanUrl(objectUrl);
+        };
+        img.src = objectUrl;
     };
 
-    // Клик по холсту: благодаря nodeOrigin={[0.5, 0.5]} координаты position.x/y — это точный ЦЕНТР маркера
     const handlePaneClick = useCallback(
-        (event: React.MouseEvent) => {
+        (event: MouseEvent) => {
             if (activeTool === 'add_aruco') {
                 const position = screenToFlowPosition({
                     x: event.clientX,
@@ -175,20 +250,21 @@ const MapEditorInner: React.FC = () => {
                     id: newId,
                     type: 'aruco',
                     position: { x: position.x, y: position.y },
+                    width: markerSize,
+                    height: markerSize,
+                    style: { width: markerSize, height: markerSize },
                     data: {
                         aruco_id: nextArucoId,
                         label: `Marker ${nextArucoId}`,
-                        markerSize,
+                        onResizeMarker: (newSize: number) => setMarkerSize(newSize),
                     },
                 };
 
                 setNodes((nds) => [...nds, newNode]);
                 setNextArucoId((prev) => prev + 1);
                 setSelectedNodeId(newId);
-                setSelectedEdgeId(null);
             } else {
                 setSelectedNodeId(null);
-                setSelectedEdgeId(null);
             }
         },
         [activeTool, nextArucoId, markerSize, screenToFlowPosition, setNodes]
@@ -228,7 +304,7 @@ const MapEditorInner: React.FC = () => {
         updatedData: { aruco_id?: number; label?: string }
     ) => {
         setNodes((nds) =>
-            nds.map((node) =>
+            nds.map((node): AppNode =>
                 node.id === id && node.type === 'aruco'
                     ? { ...node, data: { ...node.data, ...updatedData } }
                     : node
@@ -244,16 +320,6 @@ const MapEditorInner: React.FC = () => {
         },
         [setNodes, setEdges]
     );
-
-    const selectedEdgePixelLength = useMemo(() => {
-        if (!selectedEdgeId) return null;
-        const edge = edges.find((e) => e.id === selectedEdgeId);
-        if (!edge) return null;
-        const s = nodes.find((n) => n.id === edge.source);
-        const t = nodes.find((n) => n.id === edge.target);
-        if (!s || !t) return null;
-        return getPixelDistance(s.position, t.position);
-    }, [selectedEdgeId, edges, nodes]);
 
     const selectedNode = useMemo(() => {
         const found = nodes.find((n) => n.id === selectedNodeId);
@@ -283,8 +349,10 @@ const MapEditorInner: React.FC = () => {
                 json
             );
             alert('Map successfully saved to Supabase database!');
-        } catch (err: any) {
-            alert(`Error saving to database: ${err?.message || 'Access denied'}`);
+        } catch (err: unknown) {
+            const errorMessage =
+                err instanceof Error ? err.message : 'Access denied';
+            alert(`Error saving to database: ${errorMessage}`);
         } finally {
             setIsSaving(false);
         }
@@ -396,14 +464,14 @@ const MapEditorInner: React.FC = () => {
                     </label>
                 </div>
 
-                {/* Правая группа */}
+                {/* Правая группа кнопок */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <label className="cursor-pointer flex items-center gap-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-medium px-2.5 py-1.5 rounded transition">
                         <Upload className="w-3.5 h-3.5" />
                         <span>Floor Map</span>
                         <input
                             type="file"
-                            accept="image/png, image/jpeg"
+                            accept="image/png, image/jpeg, image/webp"
                             onChange={handleFloorplanUpload}
                             className="hidden"
                         />
@@ -467,15 +535,11 @@ const MapEditorInner: React.FC = () => {
                                 handleDeleteNode(node.id);
                             } else {
                                 setSelectedNodeId(node.id);
-                                setSelectedEdgeId(null);
                             }
                         }}
                         onEdgeClick={(_, edge) => {
                             if (activeTool === 'delete') {
                                 setEdges((eds) => eds.filter((e) => e.id !== edge.id));
-                            } else {
-                                setSelectedEdgeId(edge.id);
-                                setSelectedNodeId(null);
                             }
                         }}
                         style={{ backgroundColor: '#ffffff' }}
@@ -498,9 +562,10 @@ const MapEditorInner: React.FC = () => {
                     </ReactFlow>
                 </div>
 
+                {/* Боковая панель только со свойствами выбранного маркера и JSON */}
                 <aside
                     style={{
-                        width: 320,
+                        width: 300,
                         height: '100%',
                         backgroundColor: '#f8fafc',
                         borderLeft: '1px solid #cbd5e1',
@@ -510,18 +575,6 @@ const MapEditorInner: React.FC = () => {
                     }}
                     className="space-y-3"
                 >
-                    <ScaleCalibration
-                        pxPerMeter={pxPerMeter}
-                        onChangePxPerMeter={setPxPerMeter}
-                        northOffsetDeg={northOffsetDeg}
-                        onChangeNorthOffset={setNorthOffsetDeg}
-                        selectedEdgePixelLength={selectedEdgePixelLength}
-                        markerSize={markerSize}
-                        onChangeMarkerSize={setMarkerSize}
-                        floorplanScale={floorplanScale}
-                        onChangeFloorplanScale={setFloorplanScale}
-                    />
-
                     <NodeSidebar
                         selectedNode={selectedNode}
                         onUpdateNode={handleUpdateNode}
@@ -555,7 +608,7 @@ const MapEditorInner: React.FC = () => {
     );
 };
 
-export const MapCanvas: React.FC = () => (
+export const MapCanvas: FC = () => (
     <ReactFlowProvider>
         <MapEditorInner />
     </ReactFlowProvider>

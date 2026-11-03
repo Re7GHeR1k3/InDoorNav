@@ -1,12 +1,17 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
+import { useEffect, useState, useMemo, type FC } from 'react';
+import {
+    Handle,
+    Position,
+    NodeResizer,
+    type NodeProps,
+    type Node,
+} from '@xyflow/react';
 import type { ArUcoNodeData } from '../../types/navigation';
 
 // Кэш оригинального словаря 4x4_1000 с сайта chev.me/arucogen
 let cachedDict4x4: number[][] | null = null;
 let dictPromise: Promise<number[][] | null> | null = null;
 
-// Резервные байты для популярных ID на случай работы без интернета (0, 1, 2, 19, 101..114)
 const FALLBACK_4X4: Record<number, [number, number]> = {
     0: [181, 219],
     1: [230, 92],
@@ -18,7 +23,9 @@ const FALLBACK_4X4: Record<number, [number, number]> = {
 function loadChevArucoDict(): Promise<number[][] | null> {
     if (cachedDict4x4) return Promise.resolve(cachedDict4x4);
     if (!dictPromise) {
-        dictPromise = fetch('https://cdn.jsdelivr.net/gh/okalachev/arucogen@master/dict.json')
+        dictPromise = fetch(
+            'https://cdn.jsdelivr.net/gh/okalachev/arucogen@master/dict.json'
+        )
             .then((res) => res.json())
             .then((data) => {
                 if (data && data['4x4_1000']) {
@@ -32,9 +39,6 @@ function loadChevArucoDict(): Promise<number[][] | null> {
     return dictPromise;
 }
 
-/**
- * Оригинальный алгоритм распаковки байтов из chev.me/arucogen (main.js)
- */
 function unpackAruco4x4Bytes(bytes: number[]): boolean[][] {
     const width = 4;
     const height = 4;
@@ -59,10 +63,10 @@ function unpackAruco4x4Bytes(bytes: number[]): boolean[][] {
     return matrix;
 }
 
-export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
-                                                                              data,
-                                                                              selected,
-                                                                          }) => {
+export const CustomArUcoNode: FC<NodeProps<Node<ArUcoNodeData>>> = ({
+                                                                        data,
+                                                                        selected,
+                                                                    }) => {
     const [dictLoaded, setDictLoaded] = useState<boolean>(!!cachedDict4x4);
 
     useEffect(() => {
@@ -74,7 +78,6 @@ export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
     }, []);
 
     const arucoId = Math.max(0, Math.min(999, Math.floor(data.aruco_id || 0)));
-    const markerSize = data.markerSize || 46;
 
     const matrix = useMemo(() => {
         const bytes =
@@ -85,8 +88,8 @@ export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
     }, [arucoId, dictLoaded]);
 
     const handleStyle = {
-        width: 10,
-        height: 10,
+        width: 9,
+        height: 9,
         background: '#2563eb',
         border: '2px solid #ffffff',
     };
@@ -94,15 +97,33 @@ export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
     return (
         <div
             style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
+                position: 'relative',
+                width: '100%',
+                height: '100%',
                 userSelect: 'none',
                 cursor: 'pointer',
+                boxSizing: 'border-box',
             }}
             title={data.label}
         >
-            {/* Универсальные точки соединения со всех 4 сторон */}
+            {/* Рамка растягивания строго по границе квадрата маркера */}
+            <NodeResizer
+                color="#2563eb"
+                isVisible={selected}
+                keepAspectRatio
+                minWidth={24}
+                minHeight={24}
+                maxWidth={160}
+                maxHeight={160}
+                handleStyle={{ width: 8, height: 8, borderRadius: 2 }}
+                onResize={(_, params) => {
+                    if (data.onResizeMarker) {
+                        data.onResizeMarker(Math.round(params.width));
+                    }
+                }}
+            />
+
+            {/* Точки соединения строго на 4 гранях квадрата маркера */}
             <Handle type="target" position={Position.Top} id="top-target" style={handleStyle} />
             <Handle type="source" position={Position.Top} id="top-source" style={handleStyle} />
 
@@ -115,12 +136,15 @@ export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
             <Handle type="target" position={Position.Left} id="left-target" style={handleStyle} />
             <Handle type="source" position={Position.Left} id="left-source" style={handleStyle} />
 
-            {/* Сам ArUco маркер (100% совпадение с chev.me/arucogen) */}
+            {/* Сам квадрат ArUco маркера, заполняющий 100% контейнера */}
             <div
                 style={{
+                    width: '100%',
+                    height: '100%',
                     padding: 3,
+                    boxSizing: 'border-box',
                     backgroundColor: '#ffffff',
-                    border: selected ? '2.5px solid #2563eb' : '1.5px solid #0f172a',
+                    border: selected ? '2px solid #2563eb' : '1.5px solid #0f172a',
                     borderRadius: 4,
                     boxShadow: selected
                         ? '0 0 0 3px rgba(37, 99, 235, 0.25)'
@@ -128,10 +152,11 @@ export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
                 }}
             >
                 <svg
-                    width={markerSize}
-                    height={markerSize}
+                    width="100%"
+                    height="100%"
                     viewBox="0 0 6 6"
                     shapeRendering="crispEdges"
+                    style={{ display: 'block' }}
                 >
                     <rect x="0" y="0" width="6" height="6" fill="#000000" />
                     {matrix.map((row, rIdx) =>
@@ -151,10 +176,14 @@ export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
                 </svg>
             </div>
 
-            {/* Подпись ID снизу */}
+            {/* Подпись ID вынесена за пределы квадрата, чтобы не смещать рамку и центр */}
             <div
                 style={{
-                    marginTop: 4,
+                    position: 'absolute',
+                    top: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginTop: 5,
                     padding: '1px 6px',
                     backgroundColor: selected ? '#2563eb' : '#ffffff',
                     color: selected ? '#ffffff' : '#0f172a',
@@ -165,6 +194,7 @@ export const CustomArUcoNode: React.FC<NodeProps<Node<ArUcoNodeData>>> = ({
                     fontFamily: 'monospace',
                     lineHeight: 1.2,
                     whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
                 }}
             >
                 ID: {arucoId}

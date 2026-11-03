@@ -3,12 +3,11 @@ import type { Node, Edge } from '@xyflow/react';
 export interface ArUcoNodeData extends Record<string, unknown> {
     aruco_id: number;
     label: string;
-    markerSize?: number;
+    onResizeMarker?: (newSize: number) => void;
 }
 
 export interface FloorplanNodeData extends Record<string, unknown> {
     imageUrl: string;
-    scale: number;
     isInteractive?: boolean;
 }
 

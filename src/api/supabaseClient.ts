@@ -1,35 +1,39 @@
 import { createClient } from '@supabase/supabase-js';
 import type { IndoorMapJSON } from '../types/navigation';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://your-supabase-url.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'your-anon-key';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn(
+        'Supabase URL or Anon Key is missing. Check your .env file.'
+    );
+}
 
-/**
- * Сохранить сгенерированный JSON карты в базу данных PostgreSQL
- */
+export const supabase = createClient(
+    supabaseUrl || '',
+    supabaseAnonKey || ''
+);
+
 export async function saveIndoorMapToSupabase(
     buildingName: string,
     floorLevel: number,
     latitude: number,
     longitude: number,
-    geofenceRadius: number,
+    geofenceRadiusMeters: number,
     graphData: IndoorMapJSON
 ) {
-    const { data, error } = await supabase.from('indoor_maps').insert([
-        {
-            building_name: buildingName,
-            floor_level: floorLevel,
-            latitude,
-            longitude,
-            geofence_radius_meters: geofenceRadius,
-            graph_data: graphData,
-        },
-    ]);
+    // Вызов защищенной серверной функции (RPC) вместо прямого обращения к таблице
+    const { data, error } = await supabase.rpc('save_map_rpc', {
+        p_building_name: buildingName,
+        p_floor_level: floorLevel,
+        p_lat: latitude,
+        p_lng: longitude,
+        p_radius: geofenceRadiusMeters,
+        p_graph: graphData,
+    });
 
     if (error) {
-        console.error('Ошибка сохранения в Supabase:', error.message);
         throw error;
     }
 

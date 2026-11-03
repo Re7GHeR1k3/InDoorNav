@@ -1,57 +1,24 @@
-import React, { useState } from 'react';
-import type { NodeProps, Node } from '@xyflow/react';
+import { NodeResizer, type NodeProps } from '@xyflow/react';
 import type { FloorplanNodeData } from '../../types/navigation';
 
-export const FloorplanNode: React.FC<NodeProps<Node<FloorplanNodeData>>> = ({ data }) => {
-    const { imageUrl, scale = 1, isInteractive } = data;
-    const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
-
-    if (!imageUrl) return null;
+export const FloorplanNode = ({ data, selected }: NodeProps) => {
+    const nodeData = data as FloorplanNodeData;
 
     return (
-        <div
-            style={{
-                position: 'relative',
-                userSelect: 'none',
-                outline: isInteractive ? '3px dashed #2563eb' : 'none',
-                cursor: isInteractive ? 'move' : 'default',
-            }}
-        >
-            {isInteractive && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        top: -28,
-                        left: 0,
-                        backgroundColor: '#2563eb',
-                        color: '#fff',
-                        fontSize: 11,
-                        fontWeight: 600,
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        whiteSpace: 'nowrap',
-                    }}
-                >
-                    Plan movement mode (scale: {Math.round(scale * 100)}%)
-                </div>
-            )}
+        <div className="relative w-full h-full">
+            <NodeResizer
+                color="#10b981"
+                isVisible={Boolean(nodeData.isInteractive && selected)}
+                keepAspectRatio
+                minWidth={150}
+                minHeight={100}
+                handleStyle={{ width: 10, height: 10, borderRadius: 2 }}
+            />
             <img
-                src={imageUrl}
+                src={nodeData.imageUrl}
                 alt="Floorplan"
-                onLoad={(e) => {
-                    setNaturalSize({
-                        w: e.currentTarget.naturalWidth,
-                        h: e.currentTarget.naturalHeight,
-                    });
-                }}
-                style={{
-                    display: 'block',
-                    maxWidth: 'none',
-                    opacity: 0.75,
-                    width: naturalSize ? naturalSize.w * scale : 'auto',
-                    height: naturalSize ? naturalSize.h * scale : 'auto',
-                }}
                 draggable={false}
+                className="w-full h-full block select-none pointer-events-none"
             />
         </div>
     );
